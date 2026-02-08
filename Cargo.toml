@@ -1,6 +1,6 @@
 [package]
 name = "kiwi-measurements"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Sunip K. Mukherjee <sunipkmukherjee@gmail.com>"]
 edition = "2024"
 description = "Package for representing measurements from various sensors on the Kiwi mainboard."
@@ -8,17 +8,14 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [dependencies]
-heapless = { version = "0.9", default-features = false, features = [
-    "defmt",
-    "serde",
-] }
+heapless = { version = "0.9", default-features = false, features = ["serde"] }
 defmt = { version = "1.0", optional = true }
 crc16 = "0.4"
 serde = { version = "1.0", features = ["derive"], optional = true }
 
 [features]
 default = []
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "heapless/defmt"]
 serde = ["dep:serde"]
 
 [dev-dependencies]
