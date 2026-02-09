@@ -57,57 +57,15 @@ impl CommonMeasurement {
     /// Represents the measurement as a byte array.
     #[inline]
     fn into_bytes(self) -> [u8; COMMON_MEASUREMENT_SIZE] {
-        let mut bytes = [0u8; COMMON_MEASUREMENT_SIZE];
-        let code = match self {
-            CommonMeasurement::Accel(_, _, _) => ACCEL_CODE,
-            CommonMeasurement::Gyro(_, _, _) => GYRO_CODE,
-            CommonMeasurement::Mag(_, _, _) => MAG_CODE,
-            CommonMeasurement::Temp(_, _) => TEMP_CODE,
-            CommonMeasurement::Baro(_, _, _) => BARO_CODE,
-            CommonMeasurement::Humi(_, _, _) => HUMI_CODE,
-            CommonMeasurement::Lux(_, _) => LUX_CODE,
-        };
-        bytes[0..2].copy_from_slice(&code.to_le_bytes());
         match self {
-            CommonMeasurement::Accel(x, y, z) => {
-                bytes[2..6].copy_from_slice(&x.to_le_bytes());
-                bytes[6..10].copy_from_slice(&y.to_le_bytes());
-                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&z.to_le_bytes());
-            }
-            CommonMeasurement::Gyro(x, y, z) => {
-                bytes[2..6].copy_from_slice(&x.to_le_bytes());
-                bytes[6..10].copy_from_slice(&y.to_le_bytes());
-                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&z.to_le_bytes());
-            }
-            CommonMeasurement::Mag(x, y, z) => {
-                bytes[2..6].copy_from_slice(&x.to_le_bytes());
-                bytes[6..10].copy_from_slice(&y.to_le_bytes());
-                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&z.to_le_bytes());
-            }
-            CommonMeasurement::Temp(label, value) => {
-                let label_bytes = label.as_bytes();
-                let len = label_bytes.len().min(8);
-                bytes[2..2 + len].copy_from_slice(&label_bytes[..len]);
-                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&value.to_le_bytes());
-            }
-            CommonMeasurement::Baro(temp, pres, alt) => {
-                bytes[2..6].copy_from_slice(&temp.to_le_bytes());
-                bytes[6..10].copy_from_slice(&pres.to_le_bytes());
-                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&alt.to_le_bytes());
-            }
-            CommonMeasurement::Humi(temp, humi, aqi) => {
-                bytes[2..6].copy_from_slice(&temp.to_le_bytes());
-                bytes[6..10].copy_from_slice(&humi.to_le_bytes());
-                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&aqi.to_le_bytes());
-            }
-            CommonMeasurement::Lux(label, value) => {
-                let label_bytes = label.as_bytes();
-                let len = label_bytes.len().min(8);
-                bytes[2..2 + len].copy_from_slice(&label_bytes[..len]);
-                bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&value.to_le_bytes());
-            }
+            CommonMeasurement::Accel(x, y, z) => encode_xyz(ACCEL_CODE, x, y, z),
+            CommonMeasurement::Gyro(x, y, z) => encode_xyz(GYRO_CODE, x, y, z),
+            CommonMeasurement::Mag(x, y, z) => encode_xyz(MAG_CODE, x, y, z),
+            CommonMeasurement::Temp(label, value) => encode_label_value(TEMP_CODE, &label, value),
+            CommonMeasurement::Baro(temp, pres, alt) => encode_xyz(BARO_CODE, temp, pres, alt),
+            CommonMeasurement::Humi(temp, humi, aqi) => encode_xyz(HUMI_CODE, temp, humi, aqi),
+            CommonMeasurement::Lux(label, value) => encode_label_value(LUX_CODE, &label, value),
         }
-        bytes
     }
 }
 
@@ -133,53 +91,31 @@ impl TryFrom<&[u8]> for CommonMeasurement {
         }
         let measurement = match u16::from_le_bytes(value[0..2].try_into().unwrap()) {
             ACCEL_CODE => {
-                let x = f32::from_le_bytes(value[2..6].try_into().unwrap());
-                let y = f32::from_le_bytes(value[6..10].try_into().unwrap());
-                let z = f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                let (x, y, z) = parse_xyz(value);
                 CommonMeasurement::Accel(x, y, z)
             }
             GYRO_CODE => {
-                let x = f32::from_le_bytes(value[2..6].try_into().unwrap());
-                let y = f32::from_le_bytes(value[6..10].try_into().unwrap());
-                let z = f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                let (x, y, z) = parse_xyz(value);
                 CommonMeasurement::Gyro(x, y, z)
             }
             MAG_CODE => {
-                let x = f32::from_le_bytes(value[2..6].try_into().unwrap());
-                let y = f32::from_le_bytes(value[6..10].try_into().unwrap());
-                let z = f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                let (x, y, z) = parse_xyz(value);
                 CommonMeasurement::Mag(x, y, z)
             }
             TEMP_CODE => {
-                let label_end = value[2..10].iter().position(|&b| b == 0).unwrap_or(8);
-                let label: String<8> = String::try_from(
-                    core::str::from_utf8(&value[2..2 + label_end]).unwrap_or("Unknown"),
-                )
-                .map_err(|_| CommonMeasurementError::String)?;
-                let value =
-                    f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                let (label, value) = parse_label_value(value);
                 CommonMeasurement::Temp(label, value)
             }
             BARO_CODE => {
-                let t = f32::from_le_bytes(value[2..6].try_into().unwrap());
-                let p = f32::from_le_bytes(value[6..10].try_into().unwrap());
-                let a = f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                let (t, p, a) = parse_xyz(value);
                 CommonMeasurement::Baro(t, p, a)
             }
             HUMI_CODE => {
-                let t = f32::from_le_bytes(value[2..6].try_into().unwrap());
-                let h = f32::from_le_bytes(value[6..10].try_into().unwrap());
-                let a = f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                let (t, h, a) = parse_xyz(value);
                 CommonMeasurement::Humi(t, h, a)
             }
             LUX_CODE => {
-                let label_end = value[2..10].iter().position(|&b| b == 0).unwrap_or(8);
-                let label: String<8> = String::try_from(
-                    core::str::from_utf8(&value[2..2 + label_end]).unwrap_or("Unknown"),
-                )
-                .map_err(|_| CommonMeasurementError::String)?;
-                let value =
-                    f32::from_le_bytes(value[10..COMMON_MEASUREMENT_SIZE].try_into().unwrap());
+                let (label, value) = parse_label_value(value);
                 CommonMeasurement::Lux(label, value)
             }
             _ => return Err(CommonMeasurementError::Type),
@@ -254,6 +190,49 @@ impl TryFrom<&[u8]> for SingleMeasurement {
             timestamp,
         })
     }
+}
+
+fn parse_xyz(value: &[u8]) -> (f32, f32, f32) {
+    let x = f32::from_le_bytes(value[2..6].try_into().unwrap_or([0u8; 4]));
+    let y = f32::from_le_bytes(value[6..10].try_into().unwrap_or([0u8; 4]));
+    let z = f32::from_le_bytes(
+        value[10..COMMON_MEASUREMENT_SIZE]
+            .try_into()
+            .unwrap_or([0u8; 4]),
+    );
+    (x, y, z)
+}
+
+fn parse_label_value(value: &[u8]) -> (String<8>, f32) {
+    let label_end = value[2..10].iter().position(|&b| b == 0).unwrap_or(8);
+    let label: String<8> =
+        String::try_from(core::str::from_utf8(&value[2..2 + label_end]).unwrap_or("Unknown"))
+            .unwrap_or_else(|_| String::new());
+    let val = f32::from_le_bytes(
+        value[10..COMMON_MEASUREMENT_SIZE]
+            .try_into()
+            .unwrap_or([0u8; 4]),
+    );
+    (label, val)
+}
+
+fn encode_xyz(code: u16, x: f32, y: f32, z: f32) -> [u8; COMMON_MEASUREMENT_SIZE] {
+    let mut bytes = [0u8; COMMON_MEASUREMENT_SIZE];
+    bytes[0..2].copy_from_slice(&code.to_le_bytes());
+    bytes[2..6].copy_from_slice(&x.to_le_bytes());
+    bytes[6..10].copy_from_slice(&y.to_le_bytes());
+    bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&z.to_le_bytes());
+    bytes
+}
+
+fn encode_label_value(code: u16, label: &str, value: f32) -> [u8; COMMON_MEASUREMENT_SIZE] {
+    let mut bytes = [0u8; COMMON_MEASUREMENT_SIZE];
+    bytes[0..2].copy_from_slice(&code.to_le_bytes());
+    let label_bytes = label.as_bytes();
+    let len = label_bytes.len().min(8);
+    bytes[2..2 + len].copy_from_slice(&label_bytes[..len]);
+    bytes[10..COMMON_MEASUREMENT_SIZE].copy_from_slice(&value.to_le_bytes());
+    bytes
 }
 
 #[cfg(test)]
