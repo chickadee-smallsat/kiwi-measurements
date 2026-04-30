@@ -20,6 +20,7 @@ const TEMP_CODE: u16 = 0x7E70;
 const BARO_CODE: u16 = 0xB480;
 const HUMI_CODE: u16 = 0xF0AC;
 const LUX_CODE: u16 = 0x1A2B;
+const ID_CODE: u16 = 0x1D1D;
 
 /// Unified measurement enum
 #[derive(Debug, Clone, PartialEq)]
@@ -40,10 +41,12 @@ pub enum CommonMeasurement {
     Humi(f32, f32, f32),
     /// Ambient light measurement in lux
     Lux(heapless::String<8>, f32),
+    /// Device Identity
+    Id(heapless::String<12>),
 }
 
 /// Size of the common measurement in bytes, as returned by [`into`](CommonMeasurement::into)
-pub const COMMON_MEASUREMENT_SIZE: usize = 1 + 12 + 1; // type (2 bytes) + 12 bytes (3 * f32, 8 bytes for Temp label + f32 value)
+pub const COMMON_MEASUREMENT_SIZE: usize = 2 + 12; // type (2 bytes) + 12 bytes (3 * f32, 8 bytes for Temp label + f32 value)
 
 #[allow(clippy::from_over_into)]
 impl Into<[u8; COMMON_MEASUREMENT_SIZE]> for CommonMeasurement {
@@ -65,6 +68,7 @@ impl CommonMeasurement {
             CommonMeasurement::Baro(temp, pres, alt) => encode_xyz(BARO_CODE, temp, pres, alt),
             CommonMeasurement::Humi(temp, humi, aqi) => encode_xyz(HUMI_CODE, temp, humi, aqi),
             CommonMeasurement::Lux(label, value) => encode_label_value(LUX_CODE, &label, value),
+            CommonMeasurement::Id(id) => encode_id(ID_CODE, &id),
         }
     }
 }
@@ -117,6 +121,12 @@ impl TryFrom<&[u8]> for CommonMeasurement {
             LUX_CODE => {
                 let (label, value) = parse_label_value(value);
                 CommonMeasurement::Lux(label, value)
+            }
+            ID_CODE => {
+                let id_str = core::str::from_utf8(&value[2..14])
+                    .map_err(|_| CommonMeasurementError::String)?
+                    .trim_end_matches(char::from(0));
+                CommonMeasurement::Id(String::try_from(id_str).map_err(|_| CommonMeasurementError::String)?)
             }
             _ => return Err(CommonMeasurementError::Type),
         };
@@ -235,6 +245,15 @@ fn encode_label_value(code: u16, label: &str, value: f32) -> [u8; COMMON_MEASURE
     bytes
 }
 
+fn encode_id(code: u16, id_str: &str) -> [u8; COMMON_MEASUREMENT_SIZE] {
+    let mut bytes = [0u8; COMMON_MEASUREMENT_SIZE];
+    bytes[0..2].copy_from_slice(&code.to_le_bytes());
+    let id_bytes = id_str.as_bytes();
+    let len = id_bytes.len().min(12);
+    bytes[2..2 + len].copy_from_slice(&id_bytes[..len]);
+    bytes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -285,6 +304,25 @@ mod tests {
         let original = CommonMeasurement::Lux(heapless::String::try_from("Room").unwrap(), 350.0);
         let bytes: [u8; _] = original.clone().into();
         let deserialized = CommonMeasurement::try_from(&bytes[..]).unwrap();
+        assert_eq!(original, deserialized);
+    }
+    #[test]
+    fn test_common_measurement_id() {
+        let original = CommonMeasurement::Id(heapless::String::try_from("kiwi#0001").unwrap());
+        let bytes: [u8; _] = original.clone().into();
+        let deserialized = CommonMeasurement::try_from(&bytes[..]).unwrap();
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_single_measurement_id() {
+        let original = CommonMeasurement::Id(heapless::String::try_from("kiwi#0001").unwrap());
+        let original = SingleMeasurement {
+            measurement: original,
+            timestamp: 555555555,
+        };
+        let bytes: [u8; _] = original.clone().into();
+        let deserialized = SingleMeasurement::try_from(&bytes[..]).unwrap();
         assert_eq!(original, deserialized);
     }
 
