@@ -6,7 +6,7 @@ acquired by the sensors on the Kiwi Mainboard.
 ## `Cargo.toml`:
 Add the following to `[dependencies]`:
 ```toml
-kiwi-measurements = { version = "0.1" }
+kiwi-measurements = { version = "0.2" }
 ```
 
 ## Features
