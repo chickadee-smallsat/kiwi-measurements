@@ -1,6 +1,6 @@
 [package]
 name = "kiwi-measurements"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Sunip K. Mukherjee <sunipkmukherjee@gmail.com>"]
 edition = "2024"
 description = "Package for representing measurements from various sensors on the Kiwi mainboard."

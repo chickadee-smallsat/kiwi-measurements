@@ -13,19 +13,30 @@ use heapless::String;
 
 type CrcState = crc16::State<crc16::XMODEM>;
 
-const ACCEL_CODE: u16 = 0xACC1;
-const GYRO_CODE: u16 = 0x6e50;
-const MAG_CODE: u16 = 0x9A61;
-const TEMP_CODE: u16 = 0x7E70;
-const BARO_CODE: u16 = 0xB480;
-const HUMI_CODE: u16 = 0xF0AC;
-const LUX_CODE: u16 = 0x1A2B;
-const ID_CODE: u16 = 0x1D1D;
+/// Accelerometer measurement type code
+pub const ACCEL_CODE: u16 = 0xACC1;
+/// Gyroscope measurement type code
+pub const GYRO_CODE: u16 = 0x6e50;
+/// Magnetometer measurement type code
+pub const MAG_CODE: u16 = 0x9A61;
+/// Temperature measurement type code
+pub const TEMP_CODE: u16 = 0x7E70;
+/// Barometric pressure measurement type code
+pub const BARO_CODE: u16 = 0xB480;
+/// Humidity measurement type code
+pub const HUMI_CODE: u16 = 0xF0AC;
+/// Ambient light measurement type code
+pub const LUX_CODE: u16 = 0x1A2B;
+/// Device identity measurement type code
+pub const ID_CODE: u16 = 0x1D1D;
+/// Received Signal Strength Indicator measurement type code
+pub const RSSI_CODE: u16 = 0x5A5A;
 
 /// Unified measurement enum
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(Format))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub enum CommonMeasurement {
     /// Accelerometer measurement in g
     Accel(f32, f32, f32),
@@ -43,6 +54,8 @@ pub enum CommonMeasurement {
     Lux(heapless::String<8>, f32),
     /// Device Identity
     Id(heapless::String<12>),
+    /// Received Signal Strength Indicator measurement in dBm
+    Rssi(bool, f32),
 }
 
 /// Size of the common measurement in bytes, as returned by [`into`](CommonMeasurement::into)
@@ -69,6 +82,7 @@ impl CommonMeasurement {
             CommonMeasurement::Humi(temp, humi, aqi) => encode_xyz(HUMI_CODE, temp, humi, aqi),
             CommonMeasurement::Lux(label, value) => encode_label_value(LUX_CODE, &label, value),
             CommonMeasurement::Id(id) => encode_id(ID_CODE, &id),
+            CommonMeasurement::Rssi(flag, value) => encode_bool_value(RSSI_CODE, flag, value),
         }
     }
 }
@@ -127,6 +141,10 @@ impl TryFrom<&[u8]> for CommonMeasurement {
                     .map_err(|_| CommonMeasurementError::String)?
                     .trim_end_matches(char::from(0));
                 CommonMeasurement::Id(String::try_from(id_str).map_err(|_| CommonMeasurementError::String)?)
+            }
+            RSSI_CODE => {
+                let (flag, value) = parse_bool_value(value);
+                CommonMeasurement::Rssi(flag, value)
             }
             _ => return Err(CommonMeasurementError::Type),
         };
@@ -202,6 +220,14 @@ impl TryFrom<&[u8]> for SingleMeasurement {
     }
 }
 
+fn encode_bool_value(code: u16, flag: bool, value: f32) -> [u8; COMMON_MEASUREMENT_SIZE] {
+    let mut bytes = [0u8; COMMON_MEASUREMENT_SIZE];
+    bytes[0..2].copy_from_slice(&code.to_le_bytes());
+    bytes[2..6].copy_from_slice(&(if flag { 1u32 } else { 0 }).to_le_bytes());
+    bytes[6..10].copy_from_slice(&value.to_le_bytes());
+    bytes
+}
+
 fn parse_xyz(value: &[u8]) -> (f32, f32, f32) {
     let x = f32::from_le_bytes(value[2..6].try_into().unwrap_or([0u8; 4]));
     let y = f32::from_le_bytes(value[6..10].try_into().unwrap_or([0u8; 4]));
@@ -211,6 +237,12 @@ fn parse_xyz(value: &[u8]) -> (f32, f32, f32) {
             .unwrap_or([0u8; 4]),
     );
     (x, y, z)
+}
+
+fn parse_bool_value(value: &[u8]) -> (bool, f32) {
+    let flag = u32::from_le_bytes(value[2..6].try_into().unwrap_or([0u8; 4])) != 0;
+    let val = f32::from_le_bytes(value[6..10].try_into().unwrap_or([0u8; 4]));
+    (flag, val)
 }
 
 fn parse_label_value(value: &[u8]) -> (String<8>, f32) {
@@ -323,6 +355,14 @@ mod tests {
         };
         let bytes: [u8; _] = original.clone().into();
         let deserialized = SingleMeasurement::try_from(&bytes[..]).unwrap();
+        assert_eq!(original, deserialized);
+    }
+
+    #[test]
+    fn test_common_measurement_rssi() {
+        let original = CommonMeasurement::Rssi(true, -42.0);
+        let bytes: [u8; _] = original.clone().into();
+        let deserialized = CommonMeasurement::try_from(&bytes[..]).unwrap();
         assert_eq!(original, deserialized);
     }
 
